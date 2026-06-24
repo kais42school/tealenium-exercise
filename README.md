@@ -448,6 +448,53 @@ To                         Action      From
 
 ---
 
+### 4.4 — Audit de sécurité avec Lynis
+
+Installation de l'outil d'audit (lecture seule, ne modifie aucune config) :
+
+```bash
+sudo apt install lynis
+sudo lynis audit system
+```
+
+**Premier scan — Hardening index : 57/100**
+
+Filtrage des avertissements et suggestions dans le rapport :
+```bash
+sudo grep "warning\[\]" /var/log/lynis-report.dat
+sudo grep "suggestion\[\]" /var/log/lynis-report.dat
+```
+
+Sur la cinquantaine de suggestions retournées, la plupart concernent un contexte serveur de production/entreprise (partitionnement dédié, mot de passe GRUB, rotation de mots de passe — sans objet puisque l'authentification par mot de passe est désactivée, accounting/auditd, serveur de logs externe...) et ont été jugées hors scope pour cet exercice.
+
+Suggestions retenues et traitées :
+
+| Suggestion Lynis | Action |
+|---|---|
+| `PKGS-7392` — paquets vulnérables | `sudo apt update && sudo apt upgrade -y` |
+| `PKGS-7346` — paquets obsolètes | `sudo apt autoremove --purge` |
+| `SSH-7408` — durcissement SSH | Ajout dans `sshd_config` : `AllowTcpForwarding no`, `X11Forwarding no`, `AllowAgentForwarding no`, `MaxAuthTries 3`, `ClientAliveCountMax 2`, `TCPKeepAlive no`, `LogLevel VERBOSE` |
+| `DEB-0880` — fail2ban absent | [À compléter — installation et configuration en cours] |
+| `BANN-7126`/`BANN-7130` — bannière légale | [À compléter] |
+| `HRDN-7230` — scanner de malware absent | [À compléter] |
+
+> **Pourquoi `Port 22` n'a-t-il pas été changé malgré la suggestion Lynis ?**  
+> [À compléter]
+
+> **Pourquoi la plupart des suggestions liées aux mots de passe (`AUTH-92xx`) sont sans objet ici ?**  
+> [À compléter]
+
+**Second scan, après application des correctifs ci-dessus — Hardening index : 67/100**
+
+```bash
+sudo lynis audit system
+```
+
+> **Pourquoi le score augmente-t-il, et qu'est-ce qui explique qu'il ne soit pas à 100 ?**  
+> [À compléter]
+
+---
+
 ## 5. Vérification finale
 
 > *Section à compléter*
