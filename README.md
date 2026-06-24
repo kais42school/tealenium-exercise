@@ -136,7 +136,183 @@ Codename:       noble
 
 ## 3. Installation d'une solution FTP sécurisée
 
-> *Section à compléter*
+### 3.1 — Vérification de l'existant
+
+Avant toute installation, vérification de la présence d'un service FTP/SFTP sur le système :
+
+```bash
+dpkg -l | grep "ftp"
+```
+
+Résultat observé :
+```
+ii  ftp                       20230507-2build3   all    dummy transitional package for tnftp
+ii  openssh-sftp-server       1:9.6p1-3ubuntu13.16  amd64  secure shell (SSH) sftp server module
+ii  tnftp                     20230507-2build3   amd64  enhanced ftp client
+```
+
+> **Que montre ce résultat sur la différence entre `ftp`/`tnftp` et `openssh-sftp-server` ?**  
+> [À compléter]
+
+Vérification que le service SSH tourne et que le sous-système SFTP est actif dans sa configuration :
+
+```bash
+sudo systemctl status ssh
+cat /etc/ssh/sshd_config | grep "ftp"
+```
+
+Résultat : le service `ssh` est `active (running)`, et la ligne suivante est déjà présente et non commentée dans `sshd_config` :
+```
+Subsystem       sftp    /usr/lib/openssh/sftp-server
+```
+
+> **Pourquoi n'y a-t-il pas eu besoin d'installer un serveur FTP supplémentaire (ex. vsftpd) ?**  
+> [À compléter]
+
+> **Quel est le problème de sécurité du protocole FTP classique, et en quoi SFTP le résout-il ?**  
+> [À compléter]
+
+> **Note pour la reproductibilité sur une autre VM :** sur cet environnement, `openssh-sftp-server` était déjà installé par défaut. Ce n'est pas garanti sur toute installation Ubuntu. Si le paquet est absent, l'installer avec :
+> ```bash
+> sudo apt install openssh-sftp-server
+> ```
+> et vérifier ensuite que la ligne `Subsystem sftp ...` est bien présente (et non commentée) dans `/etc/ssh/sshd_config`.
+
+---
+
+### 3.2 — Restriction des utilisateurs SFTP par chroot
+
+#### Principe
+
+Par défaut, un utilisateur SFTP n'est pas confiné à son dossier personnel : son dossier "home" est seulement le point où il arrive à la connexion, pas une limite — il peut naviguer ailleurs dans la limite des permissions Unix. Le chroot SSH (`ChrootDirectory`) impose une restriction structurelle : l'utilisateur ne voit et n'accède qu'au dossier désigné, qui devient sa racine apparente, quelles que soient les permissions Unix par ailleurs.
+
+> **Pourquoi est-il important de restreindre les utilisateurs SFTP à leur propre dossier, plutôt que de se fier au seul dossier home par défaut ?**  
+> [À compléter]
+
+#### Recherche de la syntaxe
+
+Recherche de la directive permettant de cibler un utilisateur/groupe spécifique dans la configuration SSH :
+
+```bash
+man sshd_config | grep "Match"
+```
+
+> **Pourquoi consulter le `man` plutôt que de chercher la syntaxe sur le web ?**  
+> [À compléter]
+
+Vérification préalable des groupes du compte administrateur, pour décider s'il doit être inclus dans la restriction :
+
+```bash
+groups ubuntu
+id ubuntu
+cat /etc/group
+```
+
+> **Pourquoi le compte `ubuntu` ne doit-il pas être inclus dans le groupe de restriction SFTP ?**  
+> [À compléter]
+
+#### Création d'un groupe dédié
+
+```bash
+sudo groupadd sftponly
+```
+
+> **Pourquoi cibler un groupe plutôt qu'un utilisateur individuel (`Match User`) dans la configuration SSH ?**  
+> [À compléter]
+
+#### Configuration du bloc de restriction
+
+Ajout en fin de fichier `/etc/ssh/sshd_config` (via `sudo nano /etc/ssh/sshd_config`) :
+
+```
+Match Group sftponly
+    ChrootDirectory /home/%u
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    X11Forwarding no
+```
+
+> **Que fait chacune de ces quatre directives ?**  
+> [À compléter]
+
+Vérification de la syntaxe avant tout redémarrage du service :
+
+```bash
+sudo sshd -t
+```
+
+Application du changement :
+
+```bash
+sudo systemctl restart ssh
+sudo systemctl daemon-reload
+sudo systemctl restart ssh
+sudo systemctl status ssh
+```
+
+> **Pourquoi tester la syntaxe avec `sshd -t` avant de redémarrer le service ?**  
+> [À compléter]
+
+Vérification sur une seconde session SSH ouverte en parallèle que l'accès normal (compte admin) n'a pas été cassé par le changement.
+
+#### Compte de test
+
+Création d'un compte jetable, sans accès shell, pour valider la configuration sans risquer un compte de production :
+
+```bash
+sudo useradd -m -G sftponly -s /usr/sbin/nologin testsftp
+```
+
+> **Pourquoi tester sur un compte dédié plutôt que directement sur un compte existant ?**  
+> [À compléter]
+
+Génération d'une paire de clés dédiée à ce compte de test :
+
+```bash
+ssh-keygen -t ed25519 -C "testsftp_keygen" -f ~/.ssh/id_testsftp
+sudo mkdir -p /home/testsftp/.ssh
+cat ~/.ssh/id_testsftp.pub
+sudo nano /home/testsftp/.ssh/authorized_keys
+```
+
+(Collage du contenu de la clé publique affichée par `cat ~/.ssh/id_testsftp.pub` dans `authorized_keys`.)
+
+```bash
+sudo chown -R testsftp:testsftp /home/testsftp/.ssh
+sudo chmod 700 /home/testsftp/.ssh
+sudo chmod 600 /home/testsftp/.ssh/authorized_keys
+```
+
+#### Contrainte de permissions sur le dossier chrooté
+
+```bash
+ls -ld /home/testsftp
+```
+
+Résultat observé : le dossier appartenait à `testsftp:testsftp` — incompatible avec les exigences d'OpenSSH, qui refuse le chroot si le dossier ciblé (et ses parents) n'appartient pas à `root` ou est modifiable par d'autres utilisateurs que `root`.
+
+Correction :
+
+```bash
+sudo chown root:root /home/testsftp
+sudo chmod 755 /home/testsftp
+```
+
+Vérification :
+
+```bash
+groups testsftp
+ls -ld /home/testsftp
+```
+
+> **Pourquoi cette contrainte de propriété/permissions existe-t-elle (le dossier de chroot doit appartenir à `root`) ?**  
+> [À compléter]
+
+**Note :** le sous-dossier `.ssh` à l'intérieur de `/home/testsftp` reste, lui, possédé par `testsftp` — la contrainte de propriété `root` ne s'applique qu'au dossier qui sert de racine du chroot, pas à son contenu.
+
+#### Vérification de la connexion
+
+[À compléter — résultat de la connexion `sftp -i ~/.ssh/id_testsftp testsftp@<ip>` : confirmer que l'utilisateur est confiné à son dossier (`cd /` ne doit montrer que son propre contenu) et qu'une tentative de connexion shell classique échoue bien]
 
 ---
 
