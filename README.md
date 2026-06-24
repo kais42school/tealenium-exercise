@@ -495,6 +495,114 @@ sudo lynis audit system
 
 ---
 
+### 4.5 — Fail2ban
+
+#### Pourquoi fail2ban en complément d'UFW
+
+UFW (`limit 22/tcp`) ralentit le brute force (max 6 tentatives / 30s) mais ne bannit jamais l'IP — elle peut continuer à réessayer indéfiniment. Fail2ban surveille les logs d'authentification (`/var/log/auth.log`), détecte les échecs répétés depuis une même IP, et **bannit** automatiquement cette IP via une règle firewall pendant une durée définie. Les deux outils sont complémentaires : UFW limite le débit, fail2ban punit la répétition.
+
+#### Installation et configuration
+
+```bash
+sudo apt install fail2ban
+```
+
+> **Pourquoi copier `jail.conf` en `jail.local` plutôt que d'éditer `jail.conf` directement ?**  
+> `jail.conf` est le fichier de configuration par défaut fourni par le paquet — il est **écrasé à chaque mise à jour** de fail2ban. `jail.local` est un fichier séparé, qui n'est jamais touché par les mises à jour, et dont les valeurs **prennent la priorité** sur celles de `jail.conf`. Éditer directement `jail.conf` ferait perdre toute la configuration personnalisée au prochain `apt upgrade`.
+
+```bash
+sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+sudo nano /etc/fail2ban/jail.local
+```
+
+Section `[sshd]` configurée ainsi :
+```
+[sshd]
+enabled = true
+port = ssh
+maxretry = 3
+bantime = 1h
+findtime = 10m
+logpath = %(sshd_log)s
+backend = %(sshd_backend)s
+```
+
+> **Notes sur cette configuration :**
+> - `port = ssh` : alias résolu via `/etc/services`, équivalent fonctionnel à `22`, plus lisible.
+> - `logpath`/`backend` : laissés tels quels — ce sont des **variables** que fail2ban résout automatiquement selon l'OS détecté (ici, le bon chemin de log SSH d'Ubuntu). Les modifier en dur casserait la portabilité du fichier sur un autre système.
+
+```bash
+sudo systemctl restart fail2ban
+sudo systemctl status fail2ban
+```
+
+> **Que fait `systemctl` ?**  
+> `systemctl` est l'outil de gestion des unités systemd : services, sockets, timers... La plupart des daemons (processus tournant en arrière-plan) d'Ubuntu moderne sont gérés ainsi — `ssh`, `ufw`, `fail2ban`, `cron`, `rsyslog`, etc. C'est ce qui permet de démarrer/arrêter/redémarrer un service et de consulter son état.
+
+Vérification détaillée des logs au démarrage :
+```bash
+sudo journalctl -u fail2ban -n 30 --no-pager
+```
+
+Un warning est apparu : `WARNING 'allowipv6' not defined in 'Definition'. Using default one: 'auto'`. Purement informatif — `allowipv6` est un paramètre optionnel non défini explicitement, fail2ban applique sa valeur par défaut sans que cela pose de problème.
+
+#### Vérification du fonctionnement
+
+```bash
+sudo fail2ban-client status sshd
+```
+
+Résultat obtenu :
+```
+Status for the jail: sshd
+|- Filter
+|  |- Currently failed: 0
+|  |- Total failed:     4
+|  `- File list:        /var/log/auth.log
+`- Actions
+   |- Currently banned: 1
+   |- Total banned:     1
+   `- Banned IP list:   91.92.40.176
+```
+
+✅ La jail `sshd` est active : 4 tentatives échouées détectées et 1 IP automatiquement bannie après dépassement du seuil (`maxretry = 3`) — validé par le brute force réel déjà observé sur la VM, sans simulation nécessaire.
+
+---
+
+### 4.6 — Bannière légale
+
+#### Principe
+
+Une bannière n'empêche techniquement rien, mais avertit explicitement tout visiteur qu'il n'a pas le droit d'accéder au système sans autorisation — utile comme preuve dans une éventuelle démarche légale en cas d'intrusion.
+
+- `/etc/issue` → affiché pour une connexion **locale** (console directe)
+- `/etc/issue.net` → affiché pour une connexion **SSH distante** — le plus pertinent ici, vu que la VM est administrée à distance
+
+```bash
+sudo nano /etc/issue
+sudo nano /etc/issue.net
+```
+
+Activation de l'affichage côté SSH (`sshd` lit ce fichier avant authentification) :
+```
+Banner /etc/issue.net
+```
+
+```bash
+sudo sshd -t
+sudo systemctl restart ssh
+```
+
+> **Différence entre `ssh` et `sshd` :**  
+> `ssh` (sans **d**) est la commande **client** — celle utilisée localement pour se connecter à une machine distante. `sshd` (*daemon*) est le **service serveur** qui tourne en permanence sur la VM, écoute le port 22, applique la configuration de `sshd_config` (chroot, bannière, restrictions...) et accepte ou refuse les connexions entrantes.
+
+**Troisième scan, après fail2ban et bannière — Hardening index : 69/100**
+
+> **Pourquoi le gain est-il plus faible qu'après les correctifs précédents ?**  
+> [À compléter]
+
+---
+
 ## 5. Vérification finale
 
 > *Section à compléter*
