@@ -603,6 +603,74 @@ sudo systemctl restart ssh
 
 ---
 
+### 4.7 — Scanner de malware (rkhunter)
+
+#### Installation et préparation
+
+```bash
+sudo apt install rkhunter
+sudo rkhunter --update
+sudo rkhunter --propupd
+```
+
+> **À quoi sert `--propupd`, et pourquoi le lancer juste après l'installation ?**  
+> Cette commande crée une base de référence des propriétés des fichiers système actuels (tailles, hash, permissions) — elle établit "l'état sain" de la VM à cet instant. Les scans suivants comparent par rapport à cette référence, plutôt que de générer de faux positifs sur des fichiers légitimes.
+
+(Note : `rkhunter --update` a renvoyé un avertissement mineur de configuration — `Invalid WEB_CMD configuration option` — sans impact sur le fonctionnement de l'outil ni sur les résultats des scans.)
+
+#### Premier scan
+
+```bash
+sudo rkhunter --check
+```
+
+Résultat : `Suspect files: 0`, `Possible rootkits: 0` — aucune infection détectée. Un seul `[ Warning ]` relevé, sur la section "hidden files and directories" :
+
+```bash
+sudo grep -i "hidden" /var/log/rkhunter.log
+```
+```
+Warning: Hidden file found: /etc/.resolv.conf.systemd-resolved.bak: ASCII text
+Warning: Hidden file found: /etc/.updated: ASCII text
+```
+
+Vérification de la nature de ces fichiers — deux faux positifs connus et documentés, sans rapport avec un quelconque malware :
+- `/etc/.updated` : créé par `systemd-update-done.service`, contient uniquement un horodatage de dernière mise à jour
+- `/etc/.resolv.conf.systemd-resolved.bak` : sauvegarde automatique créée par `systemd-resolved`
+
+#### Whitelisting et second scan
+
+```bash
+sudo nano /etc/rkhunter.conf
+```
+Ajout :
+```
+ALLOWHIDDENFILE=/etc/.updated
+ALLOWHIDDENFILE=/etc/.resolv.conf.systemd-resolved.bak
+```
+
+> **Pourquoi whitelister explicitement plutôt que d'ignorer le warning ?**  
+> [À compléter]
+
+```bash
+sudo rkhunter --check --sk
+```
+
+Résultat : `No warnings were found while checking the system.` ✅
+
+#### Quatrième scan Lynis — Hardening index : 69/100 (inchangé)
+
+```bash
+sudo lynis audit system
+```
+
+Le composant `Malware scanner` passe de `[X]` à `[V]`, confirmant la résolution de `HRDN-7230` — mais le score global reste à 69/100, sans gain visible.
+
+> **Pourquoi le score n'augmente-t-il pas malgré la correction ?**  
+> Le "Hardening index" de Lynis est un score pondéré, pas une moyenne simple par suggestion corrigée. `HRDN-7230` a un poids marginal dans le calcul global, contrairement aux suggestions volontairement laissées hors scope (partitionnement disque dédié, mot de passe GRUB, auditd, process accounting, serveur de logs externe...), qui pèsent davantage. Un score de 69/100 ici reflète des choix de scope assumés pour un environnement d'exercice, pas des failles non traitées.
+
+---
+
 ## 5. Vérification finale
 
 > *Section à compléter*
