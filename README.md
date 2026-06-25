@@ -72,7 +72,7 @@ sudo apt update
 ```
 
 > **Pourquoi cette étape ?**  
-> [À compléter — expliquer ce que tu as compris sur les dépôts EOL]
+> Ubuntu 23.04 est une version non-LTS, dont le support s'arrête quelques mois après sa sortie. Une fois cette date passée, les paquets ne disparaissent pas pour autant — mais les dépôts sont physiquement déplacés des serveurs principaux (`archive.ubuntu.com`) vers les archives historiques (`old-releases.ubuntu.com`). Toute commande `apt` visant encore les serveurs principaux échoue donc, puisqu'elle interroge une adresse qui ne sert plus cette version. Rediriger `sources.list` vers les archives permet de retrouver l'accès aux paquets et de débloquer la suite de la migration.
 
 ---
 
@@ -94,7 +94,7 @@ sudo ./mantic
 ```
 
 > **Pourquoi utiliser ce script plutôt que `do-release-upgrade` directement ?**  
-> [À compléter — expliquer ton choix]
+> `do-release-upgrade` s'appuie sur les mêmes dépôts qu'`apt`. La VM étant bloquée sur une version 23.04 déjà en fin de support, ces dépôts ne répondaient plus depuis les serveurs principaux — `do-release-upgrade` aurait donc échoué pour exactement la même raison que les commandes `apt` classiques. Le script de migration vers 23.10 a donc dû être récupéré manuellement depuis les archives (`old-releases.ubuntu.com`), où il reste disponible, avant de pouvoir lancer la mise à niveau.
 
 ---
 
@@ -105,7 +105,7 @@ sudo apt update && sudo apt dist-upgrade -y
 ```
 
 > **Pourquoi `dist-upgrade` et non `upgrade` ?**  
-> [À compléter — expliquer la différence]
+> `apt upgrade` met à jour les paquets déjà installés, mais ne touche jamais aux dépendances : il n'installe ni ne supprime aucun paquet, même si c'est nécessaire pour résoudre un conflit. `apt dist-upgrade` va plus loin et peut installer de nouveaux paquets ou en supprimer si une dépendance a changé entre deux versions. Lors d'une migration de version, de nombreuses dépendances évoluent justement de version, voire de nom — `dist-upgrade` est donc nécessaire pour que l'ensemble du système reste cohérent, là où `upgrade` aurait pu laisser des paquets dans un état incomplet.
 
 ---
 
@@ -114,6 +114,26 @@ sudo apt update && sudo apt dist-upgrade -y
 ```bash
 sudo do-release-upgrade
 ```
+
+---
+
+### Choix de conservation du fichier `sshd_config` existant
+
+Lors de la mise à jour des paquets (étapes 3 et/ou 4 — `openssh-server` a été mis à jour pendant cette journée de migration), `dpkg` a présenté l'invite suivante, car `/etc/ssh/sshd_config` avait déjà été modifié sur le système :
+
+```
+Configuration file '/etc/ssh/sshd_config'
+ ==> Modified (by you or by a script) since installation.
+ ==> Package distributor has shipped an updated version.
+   What would you like to do about it ?  Your options are:
+    Y or I  : install the package maintainer's version
+    N or O  : keep your currently-installed version
+```
+
+**Choix effectué : `N`/`O` — garder la version actuelle.**
+
+> **Pourquoi ce choix ?**  
+> Accepter la version du mainteneur (`Y`/`I`) aurait écrasé `/etc/ssh/sshd_config` par un fichier neuf et générique. Si Emmanuel ou l'hébergeur avaient déjà configuré des réglages spécifiques sur cette VM avant sa prise en main (clé particulière, port non standard, restrictions d'accès), ces réglages auraient disparu sans avertissement, avec le risque de perdre l'accès à la VM après redémarrage. Garder la version actuelle assure la continuité des accès. Si la nouvelle version du paquet apportait des nouveautés de sécurité pertinentes, elles seront inspectées et ajoutées manuellement plus tard, dans le cadre du hardening (section 4).
 
 ---
 
@@ -367,10 +387,10 @@ sudo systemctl status ssh
 #### Principe
 
 > **Pourquoi remplacer l'authentification par mot de passe par une clé SSH ?**  
-> [À compléter — expliquer la différence entre les deux méthodes et pourquoi c'est plus sûr]
+> Un mot de passe est vulnérable au brute force : un script automatisé peut tester des combinaisons en continu jusqu'à en trouver une qui fonctionne — ce qui s'est confirmé concrètement sur cette VM, exposée à des centaines de tentatives dès sa prise en main. Une authentification par clé est structurellement différente : le secret réel (la clé privée) ne quitte jamais la machine de l'utilisateur, seule une preuve cryptographique est échangée avec le serveur à chaque connexion. Si un serveur venait à être compromis, un mot de passe statique pourrait potentiellement être intercepté ou extrait côté serveur ; la clé privée, elle, reste hors de portée puisqu'elle n'a jamais été transmise. C'est aussi pourquoi `PasswordAuthentication` a été désactivée une fois la clé validée, plutôt que maintenue en parallèle : garder les deux méthodes actives aurait laissé la porte du brute force ouverte malgré la présence de la clé.
 
 > **Pourquoi avoir choisi l'algorithme ED25519 plutôt que RSA ?**  
-> [À compléter]
+> RSA repose sur la difficulté de factoriser de grands nombres entiers, ce qui impose des clés longues (2048 à 4096 bits) pour rester sûr. ED25519 repose sur un problème mathématique différent (les courbes elliptiques) qui atteint un niveau de sécurité équivalent, voire supérieur, avec des clés bien plus courtes (256 bits) — d'où des signatures plus rapides à générer et à vérifier. La note de version officielle d'OpenSSH 8.2 souligne par ailleurs que l'algorithme historique `ssh-rsa` dépend de SHA-1, un algorithme de hachage aujourd'hui fragilisé par des attaques par collision réalisables pour un coût de l'ordre de 50 000 dollars — ce qui a conduit le projet OpenSSH à recommander des alternatives plus modernes, dont ED25519, disponible depuis la version 6.5 d'OpenSSH.
 
 > **Pourquoi génère-t-on la clé sur sa machine locale et non sur la VM ?**  
 > [À compléter]
