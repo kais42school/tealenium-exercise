@@ -393,7 +393,7 @@ sudo systemctl status ssh
 > RSA repose sur la difficulté de factoriser de grands nombres entiers, ce qui impose des clés longues (2048 à 4096 bits) pour rester sûr. ED25519 repose sur un problème mathématique différent (les courbes elliptiques) qui atteint un niveau de sécurité équivalent, voire supérieur, avec des clés bien plus courtes (256 bits) — d'où des signatures plus rapides à générer et à vérifier. La note de version officielle d'OpenSSH 8.2 souligne par ailleurs que l'algorithme historique `ssh-rsa` dépend de SHA-1, un algorithme de hachage aujourd'hui fragilisé par des attaques par collision réalisables pour un coût de l'ordre de 50 000 dollars — ce qui a conduit le projet OpenSSH à recommander des alternatives plus modernes, dont ED25519, disponible depuis la version 6.5 d'OpenSSH.
 
 > **Pourquoi génère-t-on la clé sur sa machine locale et non sur la VM ?**  
-> [À compléter]
+> Parce que la clé **privée** ne doit jamais quitter la machine où elle a été générée. Si elle était générée sur la VM, elle existerait — même temporairement — sur une machine distante, exposée si la VM venait à être compromise, et il faudrait ensuite la transférer ailleurs de toute façon (ce qui multiplie les risques d'exposition pendant le transfert). En la générant en local, seule la clé **publique** est copiée sur la VM (dans `authorized_keys`) — elle ne sert qu'à vérifier une signature, elle ne permet jamais, à elle seule, de se connecter ou d'usurper l'identité du détenteur de la clé privée.
 
 #### Génération de la paire de clés (sur la machine locale)
 
@@ -595,7 +595,7 @@ Suggestions retenues et traitées :
 > Changer le port par défaut relève de la sécurité par l'obscurité : ça ne bloque pas un attaquant déterminé qui scanne l'ensemble des ports, et ça aurait complexifié la configuration UFW/fail2ban pour un bénéfice limité. Les protections réelles (authentification par clé, fail2ban, UFW en mode `limit`) sont déjà en place sur le port standard.
 
 > **Pourquoi la plupart des suggestions liées aux mots de passe (`AUTH-92xx`) sont sans objet ici ?**  
-> [À compléter]
+> Ces suggestions (expiration, complexité, hachage renforcé...) partent toutes du principe qu'il existe un mot de passe à durcir. Or `PasswordAuthentication no` est appliqué globalement sur cette VM — personne ne peut s'authentifier par mot de passe. Renforcer un mécanisme qui n'est jamais utilisé n'a donc aucun effet réel sur la sécurité.
 
 **Second scan, après application des correctifs ci-dessus — Hardening index : 67/100**
 
@@ -786,7 +786,20 @@ Le composant `Malware scanner` passe de `[X]` à `[V]`, confirmant la résolutio
 
 ## 5. Vérification finale
 
-> *Section à compléter*
+Récapitulatif de l'état de la VM à l'issue de l'ensemble des opérations :
+
+| Élément vérifié | Résultat |
+|---|---|
+| Version OS | Ubuntu 24.04 LTS (Noble Numbat) |
+| Service SSH | Actif, authentification par clé uniquement (`PasswordAuthentication no`, `PermitRootLogin no`) |
+| Accès SFTP | Disponible via OpenSSH, utilisateurs du groupe `sftponly` confinés par chroot (testé et validé) |
+| Pare-feu UFW | Actif — seul le port 22/tcp ouvert, en mode `limit` |
+| Fail2ban | Actif — jail `sshd` opérationnelle, bannissement automatique confirmé sur attaque réelle |
+| Bannière de connexion | Affichée avant authentification (`/etc/issue.net`) |
+| Scanner de malware (rkhunter) | Scan exécuté, aucun fichier suspect, aucun rootkit détecté |
+| Audit Lynis | Hardening index : 69/100 — suggestions restantes hors scope, documentées et justifiées |
+
+Cet ensemble constitue une configuration reproductible à l'identique sur une autre VM, en suivant les sections 2 à 4 dans l'ordre.
 
 ---
 
