@@ -172,7 +172,7 @@ ii  tnftp                     20230507-2build3   amd64  enhanced ftp client
 ```
 
 > **Que montre ce résultat sur la différence entre `ftp`/`tnftp` et `openssh-sftp-server` ?**  
-> [À compléter]
+> `ftp` et `tnftp` sont des outils **clients** : ils permettent de se connecter à un serveur FTP distant, pas d'en héberger un. `openssh-sftp-server` est, lui, le module **serveur** — c'est lui qui permet à des clients externes de se connecter en SFTP à cette VM.
 
 Vérification que le service SSH tourne et que le sous-système SFTP est actif dans sa configuration :
 
@@ -187,10 +187,10 @@ Subsystem       sftp    /usr/lib/openssh/sftp-server
 ```
 
 > **Pourquoi n'y a-t-il pas eu besoin d'installer un serveur FTP supplémentaire (ex. vsftpd) ?**  
-> [À compléter]
+> Le module serveur SFTP (`openssh-sftp-server`) était déjà installé par défaut sur cette VM, et constitue précisément la solution recherchée — sécurisée, contrairement à un serveur FTP classique. Installer un serveur supplémentaire aurait été redondant.
 
 > **Quel est le problème de sécurité du protocole FTP classique, et en quoi SFTP le résout-il ?**  
-> [À compléter]
+> Le FTP classique ne chiffre rien : identifiants et données transitent en clair sur le réseau, exposés à toute interception. SFTP résout ce problème en faisant transiter l'ensemble des échanges à travers un tunnel SSH chiffré, avec l'algorithme négocié entre client et serveur.
 
 > **Note pour la reproductibilité sur une autre VM :** sur cet environnement, `openssh-sftp-server` était déjà installé par défaut. Ce n'est pas garanti sur toute installation Ubuntu. Si le paquet est absent, l'installer avec :
 > ```bash
@@ -207,7 +207,7 @@ Subsystem       sftp    /usr/lib/openssh/sftp-server
 Par défaut, un utilisateur SFTP n'est pas confiné à son dossier personnel : son dossier "home" est seulement le point où il arrive à la connexion, pas une limite — il peut naviguer ailleurs dans la limite des permissions Unix. Le chroot SSH (`ChrootDirectory`) impose une restriction structurelle : l'utilisateur ne voit et n'accède qu'au dossier désigné, qui devient sa racine apparente, quelles que soient les permissions Unix par ailleurs.
 
 > **Pourquoi est-il important de restreindre les utilisateurs SFTP à leur propre dossier, plutôt que de se fier au seul dossier home par défaut ?**  
-> [À compléter]
+> Par principe de moindre privilège : un utilisateur SFTP ne doit avoir accès qu'à ce qui lui est strictement nécessaire, pas à l'ensemble du système de fichiers. Sans restriction explicite, rien n'empêche structurellement un utilisateur de naviguer au-delà de son dossier personnel.
 
 #### Recherche de la syntaxe
 
@@ -218,7 +218,7 @@ man sshd_config | grep "Match"
 ```
 
 > **Pourquoi consulter le `man` plutôt que de chercher la syntaxe sur le web ?**  
-> [À compléter]
+> Le `man` local est toujours synchronisé avec la version d'OpenSSH réellement installée sur la VM, et provient directement de la documentation officielle — contrairement à une recherche web qui peut renvoyer des informations obsolètes ou relatives à une autre version.
 
 Vérification préalable des groupes du compte administrateur, pour décider s'il doit être inclus dans la restriction :
 
@@ -229,7 +229,7 @@ cat /etc/group
 ```
 
 > **Pourquoi le compte `ubuntu` ne doit-il pas être inclus dans le groupe de restriction SFTP ?**  
-> [À compléter]
+> `ubuntu` est le compte administrateur de la VM, avec un accès complet (sudo, shell, SSH normal). Le chrooter reviendrait à restreindre l'accès dont l'administrateur a justement besoin pour gérer le système — la restriction SFTP ne concerne que des comptes destinés exclusivement au dépôt de fichiers.
 
 #### Création d'un groupe dédié
 
@@ -238,7 +238,7 @@ sudo groupadd sftponly
 ```
 
 > **Pourquoi cibler un groupe plutôt qu'un utilisateur individuel (`Match User`) dans la configuration SSH ?**  
-> [À compléter]
+> Cibler un groupe permet à la règle de s'appliquer automatiquement à tout futur compte ajouté à ce groupe, sans avoir à modifier `sshd_config` à chaque nouveau compte SFTP créé.
 
 #### Configuration du bloc de restriction
 
@@ -253,7 +253,7 @@ Match Group sftponly
 ```
 
 > **Que fait chacune de ces quatre directives ?**  
-> [À compléter]
+> `ChrootDirectory /home/%u` enferme l'utilisateur dans son dossier, qui devient sa racine apparente. `ForceCommand internal-sftp` interdit tout shell classique et force l'exécution du sous-système SFTP uniquement. `AllowTcpForwarding no` et `X11Forwarding no` désactivent deux fonctionnalités SSH annexes (tunneling, affichage graphique distant) qui n'ont aucune utilité dans un contexte SFTP pur, et qui élargiraient sinon la surface d'attaque sans raison.
 
 Vérification de la syntaxe avant tout redémarrage du service :
 
@@ -271,7 +271,7 @@ sudo systemctl status ssh
 ```
 
 > **Pourquoi tester la syntaxe avec `sshd -t` avant de redémarrer le service ?**  
-> [À compléter]
+> Pour détecter une éventuelle erreur de syntaxe avant qu'elle ne soit appliquée. Si le fichier contenait une faute et que le service était redémarré directement, `sshd` pourrait refuser de redémarrer — et avec lui, tout accès SSH à la VM serait perdu, sans moyen de se reconnecter pour corriger l'erreur.
 
 Vérification sur une seconde session SSH ouverte en parallèle que l'accès normal (compte admin) n'a pas été cassé par le changement.
 
@@ -284,7 +284,7 @@ sudo useradd -m -G sftponly -s /usr/sbin/nologin testsftp
 ```
 
 > **Pourquoi tester sur un compte dédié plutôt que directement sur un compte existant ?**  
-> [À compléter]
+> Pour valider que la configuration de restriction fonctionne correctement sans risquer de casser l'accès d'un compte de production existant (`ubuntu`) en cas d'erreur de configuration.
 
 Génération d'une paire de clés dédiée à ce compte de test :
 
@@ -326,7 +326,7 @@ ls -ld /home/testsftp
 ```
 
 > **Pourquoi cette contrainte de propriété/permissions existe-t-elle (le dossier de chroot doit appartenir à `root`) ?**  
-> [À compléter]
+> Pour empêcher l'utilisateur chrooté de modifier le dossier qui constitue les murs de sa propre cage. S'il pouvait écrire dans ce dossier, il pourrait potentiellement altérer ses permissions ou le remplacer par un lien symbolique, et ainsi s'échapper de la restriction qu'on cherche justement à lui imposer.
 
 **Note :** le sous-dossier `.ssh` à l'intérieur de `/home/testsftp` reste, lui, possédé par `testsftp` — la contrainte de propriété `root` ne s'applique qu'au dossier qui sert de racine du chroot, pas à son contenu.
 
@@ -378,7 +378,7 @@ sudo systemctl status ssh
 ```
 
 > **Que montre cette commande et qu'est-ce que ça t'a appris sur l'état de la VM ?**  
-> [À compléter]
+> Elle affiche l'état du service SSH (actif ou non) ainsi que les dernières lignes de son journal. C'est en consultant ce journal dès la prise en main de la VM que les tentatives de brute force depuis des IP étrangères ont été repérées, confirmant que le port 22 était déjà activement ciblé.
 
 ---
 
@@ -402,7 +402,7 @@ ssh-keygen -t ed25519 -C "tealenium_vm_keygen" -f ~/.ssh/id_tealenium
 ```
 
 > **Pourquoi utiliser l'option `-f` avec un nom spécifique ?**  
-> [À compléter — expliquer le risque d'écraser une clé existante]
+> `-f` permet de spécifier le nom et l'emplacement du fichier de clé généré. Sans elle, `ssh-keygen` utiliserait le nom par défaut (`id_ed25519`), avec le risque d'écraser silencieusement une clé existante portant ce nom. Donner un nom explicite (`id_tealenium`) évite ce risque et permet de gérer plusieurs clés distinctes sur la même machine.
 
 #### Ajout de la clé publique sur la VM
 
@@ -411,7 +411,7 @@ echo "ssh-ed25519 <clé_publique> tealenium_vm_keygen" >> ~/.ssh/authorized_keys
 ```
 
 > **Pourquoi utiliser `>>` et non `>` ?**  
-> [À compléter]
+> `>>` ajoute le contenu à la fin du fichier `authorized_keys` sans toucher à ce qu'il contient déjà, ce qui permet d'avoir plusieurs clés autorisées simultanément. `>` aurait écrasé tout le fichier, supprimant toute clé déjà présente.
 
 #### Vérification
 
@@ -445,7 +445,7 @@ sudo systemctl restart ssh
 ```
 
 > **Pourquoi est-il impératif de tester la connexion par clé AVANT de désactiver les mots de passe ?**  
-> [À compléter]
+> Pour s'assurer que la clé fonctionne réellement avant de fermer l'autre méthode d'accès. Si l'authentification par clé avait été mal configurée et que le mot de passe avait déjà été désactivé à ce moment-là, l'accès SSH à la VM aurait été perdu sans aucun moyen de se reconnecter.
 
 ---
 
@@ -463,7 +463,7 @@ Status: inactive
 ```
 
 > **Pourquoi UFW était-il inactif et quel risque cela représentait-il ?**  
-> [À compléter]
+> UFW était inactif par défaut sur l'image initiale de la VM — aucun pare-feu ne filtrait donc les connexions entrantes. Le risque concret : n'importe quel port ouvert sur la machine était exposé sans aucune limitation, ce qui aurait pu être exploité si un service mal configuré venait à ouvrir un port supplémentaire à l'insu de l'administrateur.
 
 #### Configuration et activation
 
@@ -476,10 +476,10 @@ sudo ufw enable
 ```
 
 > **Pourquoi appliquer `limit` plutôt que `allow` sur le port 22 ?**  
-> [À compléter]
+> `limit` ajoute une limitation de débit en plus de l'autorisation : au-delà d'un certain nombre de tentatives de connexion en peu de temps, UFW bloque temporairement l'IP source. `allow` aurait laissé un nombre illimité de tentatives, ne faisant que router le trafic sans aucune protection contre le brute force.
 
 > **Pourquoi est-il impératif d'autoriser le port 22 AVANT d'activer UFW ?**  
-> [À compléter]
+> Le port 22 est celui par lequel passe la session SSH en cours. Si UFW avait été activé avant que ce port soit explicitement autorisé, la politique par défaut (refus de tout trafic entrant non autorisé) aurait immédiatement coupé l'accès SSH, sans aucun moyen de se reconnecter pour corriger la règle.
 
 #### Vérification
 
@@ -527,7 +527,7 @@ sudo systemctl restart ssh
 ```
 
 > **Pourquoi interdire totalement la connexion root, même par clé ?**  
-> [À compléter]
+> Le compte root a un accès illimité au système, sans la moindre restriction. S'il restait accessible par SSH — même par clé — un attaquant qui parviendrait à compromettre cette clé obtiendrait un accès total et immédiat à la machine, sans avoir besoin de passer par `sudo`. Interdire totalement la connexion root impose de passer par un compte nommé (`ubuntu`) avant toute élévation de privilèges, ce qui ajoute une étape de traçabilité.
 
 Vérification sur une seconde session que l'accès `ubuntu` + `sudo` reste fonctionnel après le changement.
 
@@ -540,7 +540,7 @@ sudo systemctl list-unit-files --type=service | grep "enabled"
 Point notable : `unattended-upgrades.service` était déjà `enabled` — les mises à jour de sécurité sont appliquées automatiquement sans action manuelle.
 
 > **Que faut-il vérifier dans une liste de services actifs au démarrage, dans une optique de hardening ?**  
-> [À compléter]
+> Repérer les services activés qui ne sont pas réellement nécessaires à l'usage prévu de la VM, et les désactiver : chaque service actif est un point d'entrée potentiel supplémentaire. Réduire cette liste au strict nécessaire diminue la surface d'attaque globale du système.
 
 #### Audit des ports ouverts
 
@@ -557,7 +557,7 @@ LISTEN   [::]:22
 Un seul port réellement exposé au réseau externe : **22** (SSH, déjà protégé par clé + UFW + fail2ban). Le port 53 (DNS, `systemd-resolved`) est bindé sur `127.x.x.x` — accessible uniquement en local, sans risque externe.
 
 > **Pourquoi est-il important de distinguer un port lié à `0.0.0.0`/`[::]` d'un port lié à `127.x.x.x` ?**  
-> [À compléter]
+> Un port lié à `0.0.0.0` (ou `[::]` en IPv6) écoute sur toutes les interfaces réseau, donc potentiellement accessible depuis l'extérieur si rien ne le filtre. Un port lié à `127.x.x.x` n'écoute que sur la boucle locale — il n'est joignable que depuis la machine elle-même, sans risque d'exposition externe, même en l'absence de pare-feu.
 
 ---
 
@@ -587,12 +587,12 @@ Suggestions retenues et traitées :
 | `PKGS-7392` — paquets vulnérables | `sudo apt update && sudo apt upgrade -y` |
 | `PKGS-7346` — paquets obsolètes | `sudo apt autoremove --purge` |
 | `SSH-7408` — durcissement SSH | Ajout dans `sshd_config` : `AllowTcpForwarding no`, `X11Forwarding no`, `AllowAgentForwarding no`, `MaxAuthTries 3`, `ClientAliveCountMax 2`, `TCPKeepAlive no`, `LogLevel VERBOSE` |
-| `DEB-0880` — fail2ban absent | [À compléter — installation et configuration en cours] |
-| `BANN-7126`/`BANN-7130` — bannière légale | [À compléter] |
-| `HRDN-7230` — scanner de malware absent | [À compléter] |
+| `DEB-0880` — fail2ban absent | Installé et configuré (voir section 4.6) |
+| `BANN-7126`/`BANN-7130` — bannière légale | Ajoutée (voir section 4.7) |
+| `HRDN-7230` — scanner de malware absent | rkhunter installé et scan validé (voir section 4.8) |
 
 > **Pourquoi `Port 22` n'a-t-il pas été changé malgré la suggestion Lynis ?**  
-> [À compléter]
+> Changer le port par défaut relève de la sécurité par l'obscurité : ça ne bloque pas un attaquant déterminé qui scanne l'ensemble des ports, et ça aurait complexifié la configuration UFW/fail2ban pour un bénéfice limité. Les protections réelles (authentification par clé, fail2ban, UFW en mode `limit`) sont déjà en place sur le port standard.
 
 > **Pourquoi la plupart des suggestions liées aux mots de passe (`AUTH-92xx`) sont sans objet ici ?**  
 > [À compléter]
@@ -604,7 +604,7 @@ sudo lynis audit system
 ```
 
 > **Pourquoi le score augmente-t-il, et qu'est-ce qui explique qu'il ne soit pas à 100 ?**  
-> [À compléter]
+> Le score augmente parce que plusieurs suggestions concrètes ont été appliquées (mise à jour des paquets, nettoyage, durcissement SSH). Il ne grimpe pas à 100 parce qu'une partie des suggestions restantes concerne des changements lourds ou pensés pour des serveurs physiques de production (partitionnement dédié, mot de passe GRUB, accounting...), jugés disproportionnés pour une VM d'exercice.
 
 ---
 
@@ -712,7 +712,7 @@ sudo systemctl restart ssh
 **Troisième scan, après fail2ban et bannière — Hardening index : 69/100**
 
 > **Pourquoi le gain est-il plus faible qu'après les correctifs précédents ?**  
-> [À compléter]
+> Le score Lynis est pondéré, pas additif : chaque suggestion corrigée n'apporte pas le même nombre de points. Fail2ban et la bannière légale ont un poids plus faible dans le calcul global que les correctifs précédents (mise à jour système, durcissement SSH), d'où un gain quasi nul malgré le travail réel effectué.
 
 ---
 
@@ -763,7 +763,7 @@ ALLOWHIDDENFILE=/etc/.resolv.conf.systemd-resolved.bak
 ```
 
 > **Pourquoi whitelister explicitement plutôt que d'ignorer le warning ?**  
-> [À compléter]
+> Whitelister explicitement ces fichiers permet aux scans futurs de ne plus les signaler comme suspects, tout en gardant la capacité de détecter un véritable nouveau fichier caché. Ignorer silencieusement le warning sans le documenter aurait risqué de masquer un vrai problème lors d'une future mise à jour, faute de savoir quels fichiers étaient déjà connus comme légitimes.
 
 ```bash
 sudo rkhunter --check --sk
