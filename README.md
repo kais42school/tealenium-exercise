@@ -312,7 +312,38 @@ ls -ld /home/testsftp
 
 #### Vérification de la connexion
 
-[À compléter — résultat de la connexion `sftp -i ~/.ssh/id_testsftp testsftp@<ip>` : confirmer que l'utilisateur est confiné à son dossier (`cd /` ne doit montrer que son propre contenu) et qu'une tentative de connexion shell classique échoue bien]
+Test depuis la VM elle-même (connexion à `localhost`) :
+
+```bash
+sftp -i ~/.ssh/id_testsftp testsftp@localhost
+```
+
+```
+sftp> pwd
+Remote working directory: /
+sftp> ls -la
+drwxr-xr-x    ? root     root         4096 Jun 24 13:22 .
+drwxr-xr-x    ? root     root         4096 Jun 24 13:22 ..
+-rw-r--r--    ? 1001     1002          220 Jan  7  2023 .bash_logout
+-rw-r--r--    ? 1001     1002          343 Jul 18  2023 .bashrc
+-rw-r--r--    ? 1001     1002          807 Jan  7  2023 .profile
+drwx------    ? 1001     1002         4096 Jun 24 13:23 .ssh
+sftp> cd ..
+sftp> ls
+```
+
+`pwd` affiche `/` — `testsftp` perçoit `/home/testsftp` comme sa racine. `cd ..` ne fait remonter à rien de visible : le chroot empêche toute sortie. Les fichiers de l'utilisateur s'affichent avec des UID/GID numériques (`1001`/`1002`) plutôt que des noms, preuve supplémentaire que `/etc/passwd` et `/etc/group` (réels, sur la VM) ne sont pas accessibles depuis l'intérieur du chroot.
+
+Test du blocage shell :
+```bash
+ssh -i ~/.ssh/id_testsftp testsftp@localhost
+```
+```
+This service allows sftp connections only.
+Connection to localhost closed.
+```
+
+✅ Confirmé : `testsftp` est confiné à son dossier et ne peut obtenir aucun shell — seul le SFTP est autorisé.
 
 ---
 
@@ -448,7 +479,69 @@ To                         Action      From
 
 ---
 
-### 4.4 — Audit de sécurité avec Lynis
+### 4.4 — Restriction de la connexion root et audit complémentaire
+
+#### `PermitRootLogin`
+
+Vérification de la valeur par défaut (commentée, donc valeur OpenSSH appliquée implicitement) :
+
+```bash
+cat /etc/ssh/sshd_config | grep "PermitRoot"
+```
+```
+#PermitRootLogin prohibit-password
+```
+
+`prohibit-password` interdit déjà une connexion root par mot de passe (redondant avec `PasswordAuthentication no`, déjà global), mais autoriserait en théorie une connexion root par clé si une clé était un jour ajoutée à `/root/.ssh/authorized_keys`. Pour un hardening explicite plutôt qu'implicite, la directive est forcée :
+
+```bash
+sudo nano /etc/ssh/sshd_config
+```
+```
+PermitRootLogin no
+```
+
+```bash
+sudo sshd -t
+sudo systemctl restart ssh
+```
+
+> **Pourquoi interdire totalement la connexion root, même par clé ?**  
+> [À compléter]
+
+Vérification sur une seconde session que l'accès `ubuntu` + `sudo` reste fonctionnel après le changement.
+
+#### Audit des services actifs au démarrage
+
+```bash
+sudo systemctl list-unit-files --type=service | grep "enabled"
+```
+
+Point notable : `unattended-upgrades.service` était déjà `enabled` — les mises à jour de sécurité sont appliquées automatiquement sans action manuelle.
+
+> **Que faut-il vérifier dans une liste de services actifs au démarrage, dans une optique de hardening ?**  
+> [À compléter]
+
+#### Audit des ports ouverts
+
+```bash
+ss -tlnp
+```
+```
+LISTEN   0.0.0.0:22
+LISTEN   127.0.0.54:53
+LISTEN   127.0.0.53%lo:53
+LISTEN   [::]:22
+```
+
+Un seul port réellement exposé au réseau externe : **22** (SSH, déjà protégé par clé + UFW + fail2ban). Le port 53 (DNS, `systemd-resolved`) est bindé sur `127.x.x.x` — accessible uniquement en local, sans risque externe.
+
+> **Pourquoi est-il important de distinguer un port lié à `0.0.0.0`/`[::]` d'un port lié à `127.x.x.x` ?**  
+> [À compléter]
+
+---
+
+### 4.5 — Audit de sécurité avec Lynis
 
 Installation de l'outil d'audit (lecture seule, ne modifie aucune config) :
 
@@ -495,7 +588,7 @@ sudo lynis audit system
 
 ---
 
-### 4.5 — Fail2ban
+### 4.6 — Fail2ban
 
 #### Pourquoi fail2ban en complément d'UFW
 
@@ -569,7 +662,7 @@ Status for the jail: sshd
 
 ---
 
-### 4.6 — Bannière légale
+### 4.7 — Bannière légale
 
 #### Principe
 
@@ -603,7 +696,7 @@ sudo systemctl restart ssh
 
 ---
 
-### 4.7 — Scanner de malware (rkhunter)
+### 4.8 — Scanner de malware (rkhunter)
 
 #### Installation et préparation
 
